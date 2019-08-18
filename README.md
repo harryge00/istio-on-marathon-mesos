@@ -6,14 +6,11 @@ This repo introduces how to run Istio on DC/OS or Mesos + Marathon environments.
 
 ## Quick Start on DC/OS
 
-1. Deploy etcd, apiserver, pilot, zipkin in DC/OS. apiserver is used only for providing [CustomResourceDefinitions](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/#customresourcedefinitions) like `virtualservice`, `destinationrule`.
+1. Deploy etcd, apiserver, istio-pilot and zipkin in DC/OS. The apiserver is used only for providing [CustomResourceDefinitions](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/#customresourcedefinitions) like `virtualservice`, `destinationrule`.
 	
-	You can deploy those app through UI, or using command-line.
+	You can deploy the control-plane using command-line.
 	```
-	dcos marathon app add install/etcd.json
-	dcos marathon app add install/zipkin.json
-	dcos marathon app add install/apiserver.json
-	dcos marathon app add install/pilot.json
+	curl -XPOST master.mesos:8080/v2/groups -d "@install/istio-basic-control-plane.json"
 	```
 
 2. Deploy the bookfinfo sample
@@ -39,7 +36,7 @@ This repo introduces how to run Istio on DC/OS or Mesos + Marathon environments.
 	```
 	curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.7.3/bin/linux/amd64/kubectl && export PATH=$PATH:$PWD && chmod +x kubectl
 	kubectl config set-context istio --cluster=istio
-	kubectl config set-cluster istio --server=http://apiserver.marathon.autoip.dcos.thisdcos.directory:30080
+	kubectl config set-cluster istio --server=http://apiserver.istio.marathon.slave.mesos:31080
 	kubectl config use-context istio
 	```
 	Before you can use Istio to control the Bookinfo version routing, you need to define the available versions, called subsets, in destination rules.
