@@ -1,134 +1,167 @@
-# Istio for Mesos(alpha)
+# Istio on Marathon + Mesos
 
 ![Istio Arch](./istio-arch.svg)
 
-This repo introduces how to run Istio on DC/OS or Mesos + Marathon environments. I added a new service registry based on Marathon [event stream](https://mesosphere.github.io/marathon/docs/event-bus.html) to `pilot-discovery`, using [go-marathon](https://github.com/gambol99/go-marathon) as client. Istio components and Zipkin are running as Marathon applications, while workloads is running with a pilot-agent/envoy in the same Marathon Pod.
+This repo introduces how to run Istio on DC/OS or Mesos + Marathon environments. I added a new service registry based on Marathon's api to istio's pilot, using [go-marathon](https://github.com/gambol99/go-marathon) as a client. Istio's control-plane are running as Marathon applications, while workloads are running with a `envoy-proxy` container in the same Marathon Pod.
 
 ## Quick Start on DC/OS
 
-1. Deploy the control-plane in DC/OS.
+### 1. Deploy the control-plane in DC/OS
 
-	The control-plane consists of `etcd, apiserver, istio-pilot and zipkin`. The apiserver is used only for providing [CustomResourceDefinitions](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/#customresourcedefinitions) like `virtualservice`, `destinationrule`.
+The control-plane consists of `etcd, apiserver, istio-pilot and zipkin`. The apiserver is used only for providing [CustomResourceDefinitions](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/#customresourcedefinitions) like `virtualservice`, `destinationrule`.
 
-	You can deploy the control-plane in group using command-line.
-	```
-	curl -XPOST master.mesos:8080/v2/groups -d "@install/istio-basic-control-plane.json"
-	```
-
-2. Deploy the bookfinfo sample
-
-	The [bookinfo](https://istio.io/docs/examples/bookinfo/) is a sample application composed of four separate microservices used to demonstrate various Istio features.
-
-	```
-	dcos marathon pod add bookinfo/details.json
-	dcos marathon pod add bookinfo/ratings.json
-	dcos marathon pod add bookinfo/reviews-v1.json
-	dcos marathon pod add bookinfo/reviews-v2.json
-	dcos marathon pod add bookinfo/reviews-v3.json
-	dcos marathon pod add bookinfo/productpage.json
-	```
-
-	After the services are running, you should be able to access `productpage`:
-	```
-	curl productpage.marathon.l4lb.thisdcos.directory:9080
-	```
-
-3. Deploy ingress-gateway
-	Now all the bookinfo services are running in private nodes, we have to deploy a `ingress-gateway` in the public node to expose them.
+You can deploy the control-plane in group using command-line.
 ```
-	dcos marathon pod add install/ingressgateway.json
+curl -XPOST master.mesos:8080/v2/groups -d "@install/istio-basic-control-plane.json"
 ```
 
-4. Apply gateway rules and expose productpage
+### 2. Deploy the bookfinfo sample
 
-	In the master or any agent node, setup kubectl first:
-	```
-	curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.10.12/bin/linux/amd64/kubectl && export PATH=$PATH:$PWD && chmod +x kubectl
-	kubectl config set-context istio --cluster=istio
-	kubectl config set-cluster istio --server=http://apiserver.istio.marathon.slave.mesos:31080
-	kubectl config use-context istio
-	```
-	Before we can use Istio to control the Bookinfo routing, we have to apply destination rules and gateway.
-	```
-	kubectl apply -f bookinfo/destination-rule-all.yaml
-	kubectl apply -f bookinfo/gateway.yaml
-	```
+The [bookinfo](https://istio.io/docs/examples/bookinfo/) is a sample application composed of four separate microservices used to demonstrate various Istio features.
 
-3. Visit the productpage and validate load-balancing by Envoy.
+```
+dcos marathon pod add bookinfo/details.json
+dcos marathon pod add bookinfo/ratings.json
+dcos marathon pod add bookinfo/reviews-v1.json
+dcos marathon pod add bookinfo/reviews-v2.json
+dcos marathon pod add bookinfo/reviews-v3.json
+dcos marathon pod add bookinfo/productpage.json
+```
+After the services are running, you should be able to access `productpage`:
+```
+curl productpage.marathon.l4lb.thisdcos.directory:9080
+```
 
-	Visit `$HOST_IP_OF_PRODUCTPAGE:$HOST_PORT_OF_PRODUCTPAGE`
-	You can refresh the page and find Book Reviews has three kinds of version. This is because the envoy proxy of `productpage` pod will do round-roubin load-balance to one of the 3 `reviews` pods when there is NO routing rules applied.
+### 3. Deploy ingress-gateway
 
+Now all the bookinfo services are running in private nodes, we have to deploy a `ingress-gateway` in the public node to expose them.
+```
+dcos marathon pod add install/ingressgateway.json
+```
 
+### 4. Apply gateway rules and expose `productpage`
 
-5. Routing all traffics to v1
-	```
-	kubectl apply -f bookinfo/vs-all-v1.yaml
-	```
-	Now you can visit `productpage` again and find the `reviews` is always v1.
+In the master or any agent node, setup kubectl first:
+```
+curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.10.12/bin/linux/amd64/kubectl && export PATH=$PATH:$PWD && chmod +x kubectl
+kubectl config set-context istio --cluster=istio
+kubectl config set-cluster istio --server=http://apiserver.istio.marathon.slave.mesos:31080
+kubectl config use-context istio
+```
+Then we apply the gateway rule to expose `productpage`.
+```
+kubectl apply -f bookinfo/gateway.yaml
+```
+Now we can access `productpage` through public node's ip: `$public_ip_of_public_node/productpage`:
 
-6. Fault inject: delaying requests to `details`
-	```
-	kubectl apply -f bookinfo/vs-delay-details.yaml
-	```
-	Now you can login as `jason` and found the page loading is slow...
+![productpage](img/productpage-public-node.png)
 
-	```
-	# kubectl get virtualservice details
-	apiVersion: networking.istio.io/v1alpha3
-	kind: VirtualService
-	metadata:
-	  name: details
-	spec:
-	  hosts:
-	  - details.marathon.l4lb.thisdcos.directory
-	  http:
-	  - match:
-	    - headers:
-	        end-user:
-	          exact: jason
-	    fault:
-	      delay:
-	        percent: 100
-	        fixedDelay: 7s
-	    route:
-	    - destination:
-	        host: details.marathon.l4lb.thisdcos.directory
-	        subset: v1
-	  - route:
-	    - destination:
-	        host: details.marathon.l4lb.thisdcos.directory
-	        subset: v1
-	```
-	It inject 7s delay when routing to `details` service.
-
-7. Fault inject: aborting rules
-	```
-	kubectl apply -f bookinfo/vs-details-abort.yaml
-	```
-	Refresh the `productpage` and visit `zipkin`. You can find tracing information that the return `status code` of `details` is `500`
+As we can see from `gateway` rule:
+```
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: bookinfo
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - bookinfo-gateway
+  http:
+  - match:
+    - uri:
+        exact: /productpage
+    route:
+    - destination:
+        host: productpage.marathon.l4lb.thisdcos.directory
+        port:
+          number: 9080
+```
+The `ingress-gateway` redirects `/productpage` to `productpage.marathon.l4lb.thisdcos.directory:9080/productpage`. This `ingress-gateway` is based on [envoy proxy](https://www.envoyproxy.io).
 
 
+### 5. Apply routing rules
 
-## How to run Istio on Marathon/Mesos
+Without routing rules, as we refreshing the `/productpage`, we can see 3 versions of reviews as they are round-robin:
 
-WIP
+![reviews v1](img/reviews-v1.png "reviews-v1")
+
+![reviews v2](img/reviews-v2.png "reviews-v2")
+
+![reviews v3](img/reviews-v3.png "reviews-v3")
+
+Apply the destination rule:
+```
+kubectl apply -f bookinfo/destination-rule-all.yaml
+```
+Then apply a rule to always routing to `v1`:
+```
+kubectl apply -f bookinfo/vs-all-v1.yaml
+```
+Now you can visit `productpage` again and find the `reviews` is always v1 (no star).
+You can also edit the `virtualservice` and routing to other version:
+```
+kubectl edit virtualservice reviews
+```
+Edit the `subset: v1` to `subset: v2` (black stars) or `subset: v3` (red stars) and refresh.
+
+### 6. Fault inject
+
+We can delay requests to `details`
+```
+kubectl apply -f bookinfo/vs-delay-details.yaml
+```
+Now you can sign in as `jason`.
+![sign in](./img/sign-in.png)
+And found the page loading is slow... Because istio injects 7s delay when accessing the `details` microservice for the user `jason`:
+
+```
+# kubectl get virtualservice details
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: details
+spec:
+  hosts:
+  - details.marathon.l4lb.thisdcos.directory
+  http:
+  - match:
+    - headers:
+        end-user:
+          exact: jason
+    fault:
+      delay:
+        percent: 100
+        fixedDelay: 7s
+    route:
+    - destination:
+        host: details.marathon.l4lb.thisdcos.directory
+        subset: v1
+  - route:
+    - destination:
+        host: details.marathon.l4lb.thisdcos.directory
+        subset: v1
+```
+
+### 7. Fault inject: aborting rules
+
+```
+kubectl apply -f bookinfo/vs-all-v1.yaml
+kubectl apply -f bookinfo/vs-details-abort.yaml
+```
+Now if you sign in as "jason", the page will fail to fetch product details:
+![abort error](./img/abort-error.png)
+
+
+### 8. Distributed Tracing
+
+When `envoy proxy` routing traffics, it will always send tracing span to `zipkin` or `jaeger`. And we have deployed a `jaeger` container in the public node through `install/istio-basic-control-plane.json`. So let's access the `public_ip_of_public_node:31768`
+
+![Distributed Tracing](./img/jaeger.png)
 
 ## Code
-https://github.com/harryge00/istio/tree/marathon-pilot/pilot/pkg/serviceregistry/mesos
+Pull request: https://github.com/istio/istio/pull/14731
 
-## Development Guide
-
-1. How does envoy redirect traffics?
-
-	As you may know, DC/OS use `dcos-l4lb` to do loadbalancing. In a pod with envoy proxy, we do not need l4lb since envoy will load-balance traffics to Pods.
-	![Bookinfo Reviews](./visit-bookinfo-reviews.svg)
-	In the example above, `productpage` is trying to access `reviews.marathon.l4lb.thisdcos.directory:9080`. The `productpage's` envoy has got IPs of the 3 different versions of `reviews` applications(because `Pilot-agent` will communicate with `Pilot-discovery` and got Pod's IP through cDS API and update envoy's config):
-	```
-	outbound|9080|v1|reviews.marathon.l4lb.thisdcos.directory::9.0.1.1:9080
-	outbound|9080|v2|reviews.marathon.l4lb.thisdcos.directory::9.0.1.2:9080
-	outbound|9080|v3|reviews.marathon.l4lb.thisdcos.directory::9.0.1.3:9080
-	```
-	So it will redirect traffics to one of the 3 IP:port, if no routing rules applied. After the upstream reviews Pod receives the traffics, it will check its inbound config and redirect traffics to corresponding listeners, which here is `127.0.0.1:9080`.
+But the community suggests implement marathon service discovery through MCP, so the code will be moved out of pilot in the future.
 
 ## TODO
