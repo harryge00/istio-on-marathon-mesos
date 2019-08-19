@@ -6,9 +6,11 @@ This repo introduces how to run Istio on DC/OS or Mesos + Marathon environments.
 
 ## Quick Start on DC/OS
 
-1. Deploy etcd, apiserver, istio-pilot and zipkin in DC/OS. The apiserver is used only for providing [CustomResourceDefinitions](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/#customresourcedefinitions) like `virtualservice`, `destinationrule`.
-	
-	You can deploy the control-plane using command-line.
+1. Deploy the control-plane in DC/OS.
+
+	The control-plane consists of `etcd, apiserver, istio-pilot and zipkin`. The apiserver is used only for providing [CustomResourceDefinitions](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/#customresourcedefinitions) like `virtualservice`, `destinationrule`.
+
+	You can deploy the control-plane in group using command-line.
 	```
 	curl -XPOST master.mesos:8080/v2/groups -d "@install/istio-basic-control-plane.json"
 	```
@@ -26,23 +28,38 @@ This repo introduces how to run Istio on DC/OS or Mesos + Marathon environments.
 	dcos marathon pod add bookinfo/productpage.json
 	```
 
+	After the services are running, you should be able to access `productpage`:
+	```
+	curl productpage.marathon.l4lb.thisdcos.directory:9080
+	```
+
+3. Deploy ingress-gateway
+	Now all the bookinfo services are running in private nodes, we have to deploy a `ingress-gateway` in the public node to expose them.
+```
+	dcos marathon pod add install/ingressgateway.json
+```
+
+4. Apply gateway rules and expose productpage
+
+	In the master or any agent node, setup kubectl first:
+	```
+	curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.10.12/bin/linux/amd64/kubectl && export PATH=$PATH:$PWD && chmod +x kubectl
+	kubectl config set-context istio --cluster=istio
+	kubectl config set-cluster istio --server=http://apiserver.istio.marathon.slave.mesos:31080
+	kubectl config use-context istio
+	```
+	Before we can use Istio to control the Bookinfo routing, we have to apply destination rules and gateway.
+	```
+	kubectl apply -f bookinfo/destination-rule-all.yaml
+	kubectl apply -f bookinfo/gateway.yaml
+	```
+
 3. Visit the productpage and validate load-balancing by Envoy.
 
 	Visit `$HOST_IP_OF_PRODUCTPAGE:$HOST_PORT_OF_PRODUCTPAGE`
 	You can refresh the page and find Book Reviews has three kinds of version. This is because the envoy proxy of `productpage` pod will do round-roubin load-balance to one of the 3 `reviews` pods when there is NO routing rules applied.
 
-4. Use kubectl to apply routing rules.
-	In the master or any agent node, setup kubectl first:
-	```
-	curl -LO https://storage.googleapis.com/kubernetes-release/release/v1.7.3/bin/linux/amd64/kubectl && export PATH=$PATH:$PWD && chmod +x kubectl
-	kubectl config set-context istio --cluster=istio
-	kubectl config set-cluster istio --server=http://apiserver.istio.marathon.slave.mesos:31080
-	kubectl config use-context istio
-	```
-	Before you can use Istio to control the Bookinfo version routing, you need to define the available versions, called subsets, in destination rules.
-	```
-	kubectl apply -f bookinfo/destination-rule-all.yaml
-	```
+
 
 5. Routing all traffics to v1
 	```
@@ -54,7 +71,7 @@ This repo introduces how to run Istio on DC/OS or Mesos + Marathon environments.
 	```
 	kubectl apply -f bookinfo/vs-delay-details.yaml
 	```
-	Now you can login as `jason` and found the page loading is slow... 
+	Now you can login as `jason` and found the page loading is slow...
 
 	```
 	# kubectl get virtualservice details
@@ -83,7 +100,7 @@ This repo introduces how to run Istio on DC/OS or Mesos + Marathon environments.
 	        host: details.marathon.l4lb.thisdcos.directory
 	        subset: v1
 	```
-	It inject 7s delay when routing to `details` service. 
+	It inject 7s delay when routing to `details` service.
 
 7. Fault inject: aborting rules
 	```
@@ -115,4 +132,3 @@ https://github.com/harryge00/istio/tree/marathon-pilot/pilot/pkg/serviceregistry
 	So it will redirect traffics to one of the 3 IP:port, if no routing rules applied. After the upstream reviews Pod receives the traffics, it will check its inbound config and redirect traffics to corresponding listeners, which here is `127.0.0.1:9080`.
 
 ## TODO
-

@@ -1,72 +1,93 @@
 {
+  "environment": {
+    "SERVICES_DOMAIN": "marathon.l4lb.thisdcos.directory",
+    "SERVICE_NAME": "productpage-v1",
+    "INBOUND_PORTS": "9080",
+    "ZIPKIN_ADDRESS": "zipkin.istio.marathon.slave.mesos:31767",
+    "DISCOVERY_ADDRESSS": "pilot.istio.marathon.slave.mesos:31510"
+  },
+  "labels": {
+    "istio": "productpage",
+    "version": "v1"
+  },
   "id": "/productpage",
   "containers": [
     {
       "name": "productpage",
       "resources": {
-        "cpus": 0.5,
-        "mem": 1024
-      },
-      "image": {
-        "id": "istio/examples-bookinfo-productpage-v1:1.8.0",
-        "kind": "DOCKER"
+        "cpus": 0.2,
+        "mem": 1024,
+        "disk": 0,
+        "gpus": 0
       },
       "endpoints": [
         {
           "name": "http-9080",
           "containerPort": 9080,
-          "hostPort": 0,
+          "hostPort": 31180,
           "protocol": [
             "tcp"
           ],
           "labels": {
+            "SERVICE_PROTOCOL": "http",
             "VIP_0": "/productpage:9080"
           }
         }
-      ]
+      ],
+      "image": {
+        "kind": "DOCKER",
+        "id": "istio/examples-bookinfo-productpage-v1:1.8.0"
+      }
     },
     {
       "name": "proxy",
       "resources": {
         "cpus": 0.5,
-        "mem": 1024
+        "mem": 1024,
+        "disk": 0,
+        "gpus": 0
       },
       "image": {
-        "id": "registry.cn-hangzhou.aliyuncs.com/zmcc-istio/proxy_debug:1.0.5-allinone",
-        "kind": "DOCKER"
-      },
-      "exec": {
-        "command": {
-          "shell": "chmod +777 /dev/stdout; /usr/local/bin/istio-iptables.sh -p 15001 -u 1337 -m REDIRECT -i '*' -b 9080; su istio-proxy -c \"/usr/local/bin/pilot-agent proxy --discoveryAddress pilot.marathon.containerip.dcos.thisdcos.directory:15010  --domain marathon.l4lb.thisdcos.directory --serviceregistry Mesos --serviceCluster productpage-v1 --zipkinAddress zipkin.marathon.autoip.dcos.thisdcos.directory:31767 --configPath /var/lib/istio\""
-        }
+        "kind": "DOCKER",
+        "forcePullImage": true,
+        "id": "hyge/proxy_debug:dcos-l4lb"
       }
     }
   ],
-  "scaling": {
-    "instances": 1,
-    "kind": "fixed"
-  },
   "networks": [
     {
       "name": "dcos",
       "mode": "container"
     }
   ],
-  
-  "volumes": [],
-  "fetch": [],
+  "scaling": {
+    "instances": 1,
+    "kind": "fixed"
+  },
   "scheduling": {
+    "backoff": {
+      "backoff": 1,
+      "backoffFactor": 1.15,
+      "maxLaunchDelay": 3600
+    },
+    "upgrade": {
+      "minimumHealthCapacity": 1,
+      "maximumOverCapacity": 1
+    },
+    "killSelection": "YOUNGEST_FIRST",
+    "unreachableStrategy": {
+      "inactiveAfterSeconds": 0,
+      "expungeAfterSeconds": 0
+    },
     "placement": {
       "constraints": []
     }
   },
-  "environment": {
-    "SERVICES_DOMAIN": "marathon.l4lb.thisdcos.directory"
+  "executorResources": {
+    "cpus": 0.1,
+    "mem": 32,
+    "disk": 10
   },
-  "acceptedResourceRoles": [
-    "slave_public"
-  ],
-  "labels": {
-    "version": "v1"
-  }
+  "volumes": [],
+  "fetch": []
 }

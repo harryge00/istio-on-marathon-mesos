@@ -1,0 +1,170 @@
+{
+  "environment": {
+    "SERVICE_NAME": "ingressgateway",
+    "DISCOVERY_ADDRESSS": "pilot.istio.marathon.slave.mesos:31510",
+    "ZIPKIN_ADDRESS": "zipkin.istio.marathon.slave.mesos:31767",
+    "SERVICES_DOMAIN": "marathon.l4lb.thisdcos.directory",
+    "INBOUND_PORTS": "9080"
+  },
+  "labels": {
+    "istio": "ingressgateway"
+  },
+  "id": "/ingressgateway",
+  "containers": [
+    {
+      "name": "proxy",
+      "exec": {
+            "command": {
+                "shell": "/usr/local/bin/pilot-agent proxy  router  --drainDuration  '45s'  --parentShutdownDuration  '1m0s'  --connectTimeout  '10s' --serviceregistry Mesos --serviceCluster  istio-ingressgateway  --zipkinAddress  zipkin.istio.marathon.slave.mesos:31767 --proxyAdminPort  \"15000\"  --controlPlaneAuthPolicy  NONE  --discoveryAddress  pilot.istio.marathon.slave.mesos:31510"
+            }
+        },
+      "resources": {
+        "cpus": 0.5,
+        "mem": 1024,
+        "disk": 0,
+        "gpus": 0
+      },
+      "image": {
+        "kind": "DOCKER",
+        "id": "hyge/proxy_debug:dcos-l4lb"
+      },
+      "endpoints": [
+        {
+          "name": "http2",
+          "containerPort": 80,
+          "hostPort": 80,
+          "protocol": [
+            "tcp"
+          ],
+          "labels": {
+            "SERVICE_PROTOCOL": "http",
+            "VIP_0": "/ingressgateway:80"
+          }
+        },
+        {
+          "name": "https",
+          "containerPort": 443,
+          "hostPort": 443,
+          "protocol": [
+            "tcp"
+          ],
+          "labels": {
+            "SERVICE_PROTOCOL": "http",
+            "VIP_1": "/ingressgateway:443"
+          }
+        },
+        {
+          "name": "tcp",
+          "containerPort": 31400,
+          "hostPort": 0,
+          "protocol": [
+            "tcp"
+          ],
+          "labels": {
+            "SERVICE_PROTOCOL": "http",
+            "VIP_2": "/ingressgateway:31400"
+          }
+        },
+        {
+          "name": "tcp-pilot-grpc-tls",
+          "containerPort": 15011,
+          "hostPort": 0,
+          "protocol": [
+            "tcp"
+          ],
+          "labels": {
+            "SERVICE_PROTOCOL": "http",
+            "VIP_3": "/ingressgateway:15011"
+          }
+        },
+        {
+          "name": "tcp-citadel-grpc-tls",
+          "containerPort": 8060,
+          "hostPort": 0,
+          "protocol": [
+            "tcp"
+          ],
+          "labels": {
+            "SERVICE_PROTOCOL": "http",
+            "VIP_4": "/ingressgateway:8060"
+          }
+        },
+        {
+          "name": "tcp-dns-tls",
+          "containerPort": 853,
+          "hostPort": 0,
+          "protocol": [
+            "tcp"
+          ],
+          "labels": {
+            "SERVICE_PROTOCOL": "http",
+            "VIP_5": "/ingressgateway:853"
+          }
+        },
+        {
+          "name": "http2-prometheus",
+          "containerPort": 15030,
+          "hostPort": 0,
+          "protocol": [
+            "tcp"
+          ],
+          "labels": {
+            "SERVICE_PROTOCOL": "http",
+            "VIP_6": "/ingressgateway:15030"
+          }
+        },
+        {
+          "name": "http2-grafana",
+          "containerPort": 15031,
+          "hostPort": 0,
+          "protocol": [
+            "tcp"
+          ],
+          "labels": {
+            "SERVICE_PROTOCOL": "http",
+            "VIP_7": "/ingressgateway:15031"
+          }
+        }
+      ]
+    }
+  ],
+  "networks": [
+    {
+      "name": "dcos",
+      "mode": "container"
+    }
+  ],
+  "scaling": {
+    "instances": 1,
+    "kind": "fixed"
+  },
+  "scheduling": {
+    "backoff": {
+      "backoff": 1,
+      "backoffFactor": 1.15,
+      "maxLaunchDelay": 3600
+    },
+    "upgrade": {
+      "minimumHealthCapacity": 1,
+      "maximumOverCapacity": 1
+    },
+    "placement": {
+      "acceptedResourceRoles": [
+        "slave_public"
+      ],
+      "constraints": []
+    },
+    "killSelection": "YOUNGEST_FIRST",
+    "unreachableStrategy": {
+      "inactiveAfterSeconds": 0,
+      "expungeAfterSeconds": 0
+    }
+  },
+  "executorResources": {
+    "cpus": 0.1,
+    "mem": 32,
+    "disk": 10
+  },
+  "volumes": [],
+  "fetch": []
+}
